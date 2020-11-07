@@ -42,6 +42,96 @@ class image_converter:
     joint4_trajectory = float(np.pi/2*np.sin(np.pi/20*cur_time))
     return np.array([joint2_trajectory,joint3_trajectory,joint4_trajectory])
 
+  def detect_red(self,image):
+    mask = cv2.inRange(image,(0,0,100),(0,0,255))
+    kernel = np.ones((5,5), np.uint8)
+    mask = cv2.dilate(mask,kernel,iterations=3)
+
+    M = cv2.moments(mask)
+    try:
+        cx = int(M['m10']/M['m00'])
+        cy = int(M['01']/M['m00'])
+    #blob is blocked or out of camera view = zerodivision
+    except ZeroDivisionError:
+        #implement chamfer matching here
+        print "Needs chamfer matching"
+
+  def detect_green(self,image):
+    mask = cv2.inRange(image,(0,100,0),(0,255,0))
+    kernel = np.ones((5,5), np.uint8)
+    mask = cv2.dilate(mask,kernel,iterations=3)
+
+    M = cv2.moments(mask)
+    try:
+        cx = int(M['m10']/M['m00'])
+        cy = int(M['01']/M['m00'])
+    #blob is blocked or out of camera view = zerodivision
+    except ZeroDivisionError:
+        #implement chamfer matching here
+        print "Needs chamfer matching"
+
+  def detect_blue(self,image):
+    mask = cv2.inRange(image,(100,0,0),(0,255,0))
+    kernel = np.ones((5,5), np.uint8)
+    mask = cv2.dilate(mask,kernel,iterations=3)
+
+    M = cv2.moments(mask)
+    try:
+        cx = int(M['m10']/M['m00'])
+        cy = int(M['01']/M['m00'])
+    #blob is blocked or out of camera view = zerodivision
+    except ZeroDivisionError:
+        #implement chamfer matching here
+        print "Needs chamfer matching"
+
+  def detect_yellow(self,image):
+    mask = cv2.inRange(image,(0,100,100),(0,255,255))
+    kernel = np.ones((5,5), np.uint8)
+    mask = cv2.dilate(mask,kernel,iterations=3)
+
+    M = cv2.moments(mask)
+    try:
+        cx = int(M['m10']/M['m00'])
+        cy = int(M['01']/M['m00'])
+    #blob is blocked or out of camera view = zerodivision
+    except ZeroDivisionError:
+        #implement chamfer matching here
+        print "Needs chamfer matching"
+
+
+
+  def pixelToMeterLink1(self,image):
+    blue_blob = self.detect_blue(image)
+    yellow_blob = self.detect_yellow(image)
+
+    dist = np.sum((blue_blob - yellow_blob)**2)
+    return 2.5/np.sqrt(dist)
+
+
+  def detect_joint2(self,image):
+    adj = self.pixelToMeterLink1(image)
+
+    blue_center = adj * self.detect_blue(image)
+    yellow_center = adj * self.detect_yellow(image)
+
+    joint_angle2 = np.arctan2(yellow_center[0]-blue_center[0],yellow_center[1]-blue_center[1])
+    return joint_angle2
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
   # Recieve data from camera 1, process it, and publish
   def callback1(self,data):
