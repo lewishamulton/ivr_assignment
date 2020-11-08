@@ -50,11 +50,12 @@ class image_converter:
     M = cv2.moments(mask)
     try:
         cx = int(M['m10']/M['m00'])
-        cy = int(M['01']/M['m00'])
+        cy = int(M['m01']/M['m00'])
+        return np.array([cx,cy])
     #blob is blocked or out of camera view = zerodivision
     except ZeroDivisionError:
         #implement chamfer matching here
-        print "Needs chamfer matching"
+        print("Needs chamfer matching")
 
   def detect_green(self,image):
     mask = cv2.inRange(image,(0,100,0),(0,255,0))
@@ -64,25 +65,24 @@ class image_converter:
     M = cv2.moments(mask)
     try:
         cx = int(M['m10']/M['m00'])
-        cy = int(M['01']/M['m00'])
+        cy = int(M['m01']/M['m00'])
+        return np.array([cx,cy])
     #blob is blocked or out of camera view = zerodivision
     except ZeroDivisionError:
         #implement chamfer matching here
-        print "Needs chamfer matching"
+        print("Needs chamfer matching")
+
 
   def detect_blue(self,image):
-    mask = cv2.inRange(image,(100,0,0),(0,255,0))
+    mask = cv2.inRange(image,(100,0,0),(255,0,0))
     kernel = np.ones((5,5), np.uint8)
     mask = cv2.dilate(mask,kernel,iterations=3)
-
+    cv2.imwrite('blue_copy.png', mask)
     M = cv2.moments(mask)
-    try:
-        cx = int(M['m10']/M['m00'])
-        cy = int(M['01']/M['m00'])
-    #blob is blocked or out of camera view = zerodivision
-    except ZeroDivisionError:
-        #implement chamfer matching here
-        print "Needs chamfer matching"
+    cx = int(M['m10']/M['m00'])
+    cy = int(M['m01']/M['m00'])
+    return np.array([cx,cy])
+
 
   def detect_yellow(self,image):
     mask = cv2.inRange(image,(0,100,100),(0,255,255))
@@ -90,44 +90,29 @@ class image_converter:
     mask = cv2.dilate(mask,kernel,iterations=3)
 
     M = cv2.moments(mask)
-    try:
-        cx = int(M['m10']/M['m00'])
-        cy = int(M['01']/M['m00'])
-    #blob is blocked or out of camera view = zerodivision
-    except ZeroDivisionError:
-        #implement chamfer matching here
-        print "Needs chamfer matching"
+    cx = int(M['m10']/M['m00'])
+    cy = int(M['m01']/M['m00'])
+    return np.array([cx,cy])
+
 
 
 
   def pixelToMeterLink1(self,image):
     blue_blob = self.detect_blue(image)
-    yellow_blob = self.detect_yellow(image)
+    green_blob = self.detect_green(image)
 
-    dist = np.sum((blue_blob - yellow_blob)**2)
-    return 2.5/np.sqrt(dist)
+    dist = np.sum((green_blob - blue_blob)**2)
+    return 3.5/np.sqrt(dist)
 
 
-  def detect_joint2(self,image):
+  def detect_joint3(self,image):
     adj = self.pixelToMeterLink1(image)
 
-    blue_center = adj * self.detect_blue(image)
-    yellow_center = adj * self.detect_yellow(image)
+    blue_center = adj*self.detect_blue(image)
+    green_center = adj*self.detect_green(image)
 
-    joint_angle2 = np.arctan2(yellow_center[0]-blue_center[0],yellow_center[1]-blue_center[1])
-    return joint_angle2
-
-
-
-
-
-
-
-
-
-
-
-
+    joint_angle3 = np.arctan2(blue_center[0]-green_center[0],blue_center[1]-green_center[1])
+    return joint_angle3
 
 
 
@@ -150,6 +135,8 @@ class image_converter:
     #Get joint angles
     j_angle = self.defineSinusoidalTrajectory()
 
+
+
     # Publish the results
     try:
       self.image_pub1.publish(self.bridge.cv2_to_imgmsg(self.cv_image1, "bgr8"))
@@ -157,6 +144,9 @@ class image_converter:
       self.robot_joint2_pub.publish(j_angle[0])
       self.robot_joint3_pub.publish(j_angle[1])
       self.robot_joint4_pub.publish(j_angle[2])
+
+      est_j3_angle = self.detect_joint3(self.cv_image1)
+      print("Actual Angle:",j_angle[1]," Estimated Angle:",est_j3_angle)
 
     except CvBridgeError as e:
       print(e)
