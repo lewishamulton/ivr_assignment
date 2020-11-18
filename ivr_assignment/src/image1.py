@@ -23,11 +23,30 @@ class image_converter:
     # initialize a subscriber to recieve messages rom a topic named /robot/camera1/image_raw and use callback function to recieve data
     self.image_sub1 = rospy.Subscriber("/camera1/robot/image_raw",Image,self.callback1)
 
+    # initialises a subscriber to recieve messages from camera 2
+    self.image_sub2 = rospy.Subscriber("/camera2/robot/image_raw",Image,self.callback1)
+
     #set up publisher to send joint angles to the robot
     self.robot_joint1_pub = rospy.Publisher("/robot/joint1_position_controller/command",Float64,queue_size=10)
     self.robot_joint2_pub = rospy.Publisher("/robot/joint2_position_controller/command",Float64,queue_size=10)
     self.robot_joint3_pub = rospy.Publisher("/robot/joint3_position_controller/command",Float64,queue_size=10)
     self.robot_joint4_pub = rospy.Publisher("/robot/joint4_position_controller/command",Float64,queue_size=10)
+
+    #sets up publisher of estimated joints via computer vision from camera 1
+    self.est1_joint2_pub = rospy.Publisher("/robot/joint2_estimated",Float64,queue_size=10)
+    self.est1_joint3_pub = rospy.Publisher("/robot/joint3_estimated",Float64,queue_size=10)
+    self.est1_joint4_pub = rospy.Publisher("/robot/joint4_estimated",Float64,queue_size=10)
+
+    #sets up subscribers to get list of estimated joints from camera 2
+    self.est2_joint3_sub = rospy.Subscriber("/robot/joint3_c2_estimated",Float64,self.get_camera2_joint3)
+
+    #sets up variables for estimated angles from camera 2
+    self.est2_joint2 = 0.0
+    self.est2_joint3 = 0.0
+    self.est2_joint4 = 0.0
+
+
+
     # initialize the bridge between openCV and ROS
     self.bridge = CvBridge()
 
@@ -56,8 +75,8 @@ class image_converter:
         return np.array([cx,cy])
     #blob is blocked or out of camera view = zerodivision
     except ZeroDivisionError:
-        #implement chamfer matching here
-        print("Needs chamfer matching")
+        #try camera 2 view v
+        print("Switch camera")
 
   def detect_green(self,image):
     mask = cv2.inRange(image,(0,100,0),(0,255,0))
@@ -71,8 +90,8 @@ class image_converter:
         return np.array([cx,cy])
     #blob is blocked or out of camera view = zerodivision
     except ZeroDivisionError:
-        #implement chamfer matching here
-        print("Needs chamfer matching")
+        #try camera 2 view
+        print("Switch camera")
 
 
   def detect_blue(self,image):
@@ -103,7 +122,7 @@ class image_converter:
     blue_blob = self.detect_blue(image)
     green_blob = self.detect_green(image)
 
-    dist = np.sum((green_blob - blue_blob)**2)
+    dist = np.sum((blue_blob - green_blob)**2)
     return 3.5/np.sqrt(dist)
 
 
@@ -117,38 +136,60 @@ class image_converter:
     return p*(blue_blob - red_blob)
 
 
-  def detect_joint_angles(self,image):
-    #calculates estimate of joint 2 angles
+  def detect_joint2(self,image):
+
     p = self.pixelToMeter(image)
-    blue_circle = p*self.detect_blue(image)
-    green_circle = p*self.detect_green(image)
-    est_j2 = np.arctan2(blue_circle[0]-green_circle[0],blue_circle[1]-green_circle[1])
+    green_blob = self.detect_green(image)
+    blue_blob = self.detect_blue(image)
 
-    #joint angle 3
-    est_j3 = 0.0
+    joint2_pos = p*(blue_blob - green_blob)
 
-    #joint angle 4
-    est_j4 = 0.0
+    j2_angle = np.arctan2(joint2_pos[0],joint2_pos[1])
+    return j2_angle
+
+  def detect_joint3(self,image,j2_angle):
+
+    p = self.pixelToMeter(image)
+    green_blob = self.detect_green(image)
+    blue_blob = self.detect_blue(image)
+
+    joint3_pos = p*(blue_blob - green_blob)
+
+    j3_angle = np.arctan2(joint3_pos[0],joint3_pos[1])-j2_angle
+    return j3_angle
+
+  def detect_joint4(self,image,j2_angle,j3_angle):
+
+    p = self.pixelToMeter(image)
+    blue_blob = self.detect_blue(image)
+    red_blob = self.detect_red(image)
+
+    joint4_pos = p*(blue_blob-red_blob)
+
+    j4_angle = np.arctan2(joint4_pos[0],joint4_pos[1]) - j2_angle - j3_angle
+    return j4_angle
+
+
+  def get_camera2_joint3(self,data):
+    self.est2_joint3 = data.data
 
 
 
 
 
-    angles = np.array([est_j2,est_j3,est_j4])
-    return angles
 
 
-  def caclulateJacobian(self,image):
-    #get angle estimates
-    joints = self.destroyAllWindows(image)
 
-    jacobian = np.array([[-3.5*np.sin(joints[1]+joints[2])
-    -3*np.sin(joints[3]-joints[2]-joints[1]),-3.5*np.sin(joints[1]+joints[2])
-    -3*np.sin(joints[3]-joints[2]-joints[1]),-3.5*np.sin(joints[1]+joints[2])
-    -3*np.sin(joints[3]-joints[2]-joints[1])],[3.5*np.cos(joints[1]+joints[2])
-    -3*np.cos(joints[3]-joints[2]-joints[1]),3.5*np.cos(joints[1]+joints[2])
-    -3*np.cos(joints[3]-joints[2]-joints[1]),-3*np.cos(joints[3]-joints[2]-joints[1])]])
-    return jacobian
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -196,16 +237,24 @@ class image_converter:
       self.robot_joint4_pub.publish(j_angle[2])
 
 
-      end_effector = self.detect_end_effector(self.cv_image1)
-      est_jangles = self.detect_joint_angles(self.cv_image1)
-      print("End Effector: ",end_effector);
+      est_j2 = self.detect_joint2(self.cv_image1)
+      est_j3 = self.est2_joint3
+      est_j4 = self.detect_joint4(self.cv_image1,est_j2,est_j3)
+
+      self.est1_joint2_pub.publish(est_j2)
+      print("J2 Actual Angle:",j_angle[0]," Estimated Angle:",est_j2)
+      print("J3 Actual Angle:",j_angle[1]," Estimated Angle:",est_j3)
+      print("J4 Actual Angle:",j_angle[2]," Estimated Angle:",est_j4)
+
+
+
+
 
 
 
 
     except CvBridgeError as e:
       print(e)
-      print("J2 Actual Angle:",j_angle[0]," Estimated Angle:")
 
 
 

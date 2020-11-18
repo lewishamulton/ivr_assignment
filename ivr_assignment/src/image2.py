@@ -21,10 +21,33 @@ class image_converter:
     self.image_pub2 = rospy.Publisher("image_topic2",Image, queue_size = 1)
     # initialize a subscriber to recieve messages rom a topic named /robot/camera1/image_raw and use callback function to recieve data
     self.image_sub2 = rospy.Subscriber("/camera2/robot/image_raw",Image,self.callback2)
+
+
+    #intialises a publisher for the joint 3 angle calculated from camera 3
+    self.est2_joint3_pub = rospy.Publisher("/robot/joint3_c2_estimated",Float64,queue_size=10)
+    # initialises a subscriber for the joint 2 angle calculated from camera 1
+    self.image_joint2_est = rospy.Subscriber("/robot/joint2_estimated",Float64,self.get_camera1_joint2)
     # initialize the bridge between openCV and ROS
     self.bridge = CvBridge()
 
+    #start time for robot
+    self.time_trajectory = rospy.get_time()
 
+    #estimated joint agles from camera1
+    self.est1_joint2 = 0.0
+
+
+
+
+
+  def defineSinusoidalTrajectory(self):
+    #get current time
+    cur_time = np.array([rospy.get_time() - self.time_trajectory])
+    print("Time:",cur_time)
+    joint2_trajectory = float(np.pi/2*np.sin(np.pi/15*cur_time))
+    joint3_trajectory = float(np.pi/2*np.sin(np.pi/18*cur_time))
+    joint4_trajectory = float(np.pi/2*np.sin(np.pi/20*cur_time))
+    return np.array([joint2_trajectory,joint3_trajectory,joint4_trajectory])
 
   def detect_blue(self,image):
     mask = cv2.inRange(image,(100,0,0),(255,0,0))
@@ -47,8 +70,8 @@ class image_converter:
         return np.array([cx,cy])
     #blob is blocked or out of camera view = zerodivision
     except ZeroDivisionError:
-        #implement chamfer matching here
-        print("Needs chamfer matching")
+        #switch camera view fro camera 1
+        print("Switch camera view")
 
   #convert pixel to meters for link 3
   def pixelToMeter(self,image):
@@ -58,12 +81,18 @@ class image_converter:
     return 3.5/np.sqrt(dist)
 
   #gets estimate of joint 3 angle
-  def detect_joint3(self,image):
+  def detect_joint3(self,image,j2_angle):
     p = self.pixelToMeter(image)
-    blue_circle = p*self.detect_blue(image)
-    green_circle = p*self.detect_green(image)
-    est_j3 = np.arctan2(blue_circle[0]-green_circle[0],blue_circle[1]-green_circle[1])
-    return est_j3
+    green_blob = self.detect_green(image)
+    blue_blob = self.detect_blue(image)
+
+    joint3_pos = p*(blue_blob - green_blob)
+
+    j3_angle = np.arctan2(joint3_pos[0],joint3_pos[1])
+    return j3_angle
+
+  def get_camera1_joint2(self,data):
+    self.est1_joint2 = data.data
 
   # Recieve data, process it, and publish
   def callback2(self,data):
@@ -72,12 +101,16 @@ class image_converter:
       self.cv_image2 = self.bridge.imgmsg_to_cv2(data, "bgr8")
     except CvBridgeError as e:
       print(e)
+
+
     # Uncomment if you want to save the image
     #cv2.imwrite('image_copy.png', cv_image)
     im2=cv2.imshow('window2', self.cv_image2)
     cv2.waitKey(1)
 
-    est_j3 = self.detect_joint3(self.cv_image2)
+
+    est_j3 = self.detect_joint3(self.cv_image2,self.est1_joint2)
+    self.est2_joint3_pub.publish(est_j3)
 
     # Publish the results
     try:
