@@ -23,31 +23,21 @@ class image_converter:
     self.image_sub2 = rospy.Subscriber("/camera2/robot/image_raw",Image,self.callback2)
 
 
-    #intialises a publisher for the joint 3 angle calculated from camera 3
-    self.est2_joint3_pub = rospy.Publisher("/robot/joint3_c2_estimated",Float64,queue_size=10)
-    # initialises a subscriber for the joint 2 angle calculated from camera 1
-    self.image_joint2_est = rospy.Subscriber("/robot/joint2_estimated",Float64,self.get_camera1_joint2)
+    #intialises a publisher for the x,z coords of the blobs
+    self.blue_z_pub = rospy.Publisher("blue_z_coord",Float64, queue_size = 10)
+    self.blue_x_pub = rospy.Publisher("blue_x_coord",Float64, queue_size = 10)
+    self.green_z_pub = rospy.Publisher("green_z_coord",Float64, queue_size = 10)
+    self.green_x_pub = rospy.Publisher("green_x_coord",Float64, queue_size = 10)
+
     # initialize the bridge between openCV and ROS
     self.bridge = CvBridge()
 
-    #start time for robot
-    self.time_trajectory = rospy.get_time()
 
-    #estimated joint agles from camera1
+    #estimated joint angles from camera1
     self.est1_joint2 = 0.0
 
 
 
-
-
-  def defineSinusoidalTrajectory(self):
-    #get current time
-    cur_time = np.array([rospy.get_time() - self.time_trajectory])
-    print("Time:",cur_time)
-    joint2_trajectory = float(np.pi/2*np.sin(np.pi/15*cur_time))
-    joint3_trajectory = float(np.pi/2*np.sin(np.pi/18*cur_time))
-    joint4_trajectory = float(np.pi/2*np.sin(np.pi/20*cur_time))
-    return np.array([joint2_trajectory,joint3_trajectory,joint4_trajectory])
 
   def detect_blue(self,image):
     mask = cv2.inRange(image,(100,0,0),(255,0,0))
@@ -106,11 +96,16 @@ class image_converter:
     # Uncomment if you want to save the image
     #cv2.imwrite('image_copy.png', cv_image)
     im2=cv2.imshow('window2', self.cv_image2)
+
+    blue_xz = self.detect_blue(self.cv_image2)
+    self.blue_z_pub.publish(blue_xz[0])
+    self.blue_x_pub.publish(blue_xz[1])
+
+    green_xz = self.detect_green(self.cv_image2)
+    self.green_z_pub.publish(green_xz[0])
+    self.green_x_pub.publish(green_xz[1])
     cv2.waitKey(1)
 
-
-    est_j3 = self.detect_joint3(self.cv_image2,self.est1_joint2)
-    self.est2_joint3_pub.publish(est_j3)
 
     # Publish the results
     try:

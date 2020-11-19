@@ -10,6 +10,7 @@ from sensor_msgs.msg import Image
 from std_msgs.msg import Float64MultiArray, Float64
 from cv_bridge import CvBridge, CvBridgeError
 import image2
+import math
 
 
 class image_converter:
@@ -23,27 +24,33 @@ class image_converter:
     # initialize a subscriber to recieve messages rom a topic named /robot/camera1/image_raw and use callback function to recieve data
     self.image_sub1 = rospy.Subscriber("/camera1/robot/image_raw",Image,self.callback1)
 
-    # initialises a subscriber to recieve messages from camera 2
-    self.image_sub2 = rospy.Subscriber("/camera2/robot/image_raw",Image,self.callback1)
 
-    #set up publisher to send joint angles to the robot
+    # set up publisher to send joint angles to the robot
     self.robot_joint1_pub = rospy.Publisher("/robot/joint1_position_controller/command",Float64,queue_size=10)
     self.robot_joint2_pub = rospy.Publisher("/robot/joint2_position_controller/command",Float64,queue_size=10)
     self.robot_joint3_pub = rospy.Publisher("/robot/joint3_position_controller/command",Float64,queue_size=10)
     self.robot_joint4_pub = rospy.Publisher("/robot/joint4_position_controller/command",Float64,queue_size=10)
 
-    #sets up publisher of estimated joints via computer vision from camera 1
+    # sets up publisher of estimated joints via computer vision from camera 1
     self.est1_joint2_pub = rospy.Publisher("/robot/joint2_estimated",Float64,queue_size=10)
     self.est1_joint3_pub = rospy.Publisher("/robot/joint3_estimated",Float64,queue_size=10)
     self.est1_joint4_pub = rospy.Publisher("/robot/joint4_estimated",Float64,queue_size=10)
 
-    #sets up subscribers to get list of estimated joints from camera 2
-    self.est2_joint3_sub = rospy.Subscriber("/robot/joint3_c2_estimated",Float64,self.get_camera2_joint3)
+    # sets up subscribers to get zx coords of blobs from camera 2
+    self.blue_z_sub = rospy.Subscriber("blue_z_coord",Float64,self.get_blue_z)
+    self.blue_x_sub = rospy.Subscriber("blue_x_coord",Float64,self.get_blue_x)
 
-    #sets up variables for estimated angles from camera 2
-    self.est2_joint2 = 0.0
-    self.est2_joint3 = 0.0
-    self.est2_joint4 = 0.0
+    self.green_z_sub = rospy.Subscriber("green_z_coord",Float64,self.get_green_z)
+    self.green_x_sub = rospy.Subscriber("green_x_coord",Float64,self.get_green_x)
+
+    # global variables of camera 2 coords
+    self.blueC2_z = 0.0;
+    self.blueC2_x = 0.0;
+    self.greenC2_z = 0.0;
+    self.greenC2_x = 0.0;
+
+
+
 
 
 
@@ -98,7 +105,6 @@ class image_converter:
     mask = cv2.inRange(image,(100,0,0),(255,0,0))
     kernel = np.ones((5,5), np.uint8)
     mask = cv2.dilate(mask,kernel,iterations=3)
-    cv2.imwrite('blue_copy.png', mask)
     M = cv2.moments(mask)
     cx = int(M['m10']/M['m00'])
     cy = int(M['m01']/M['m00'])
@@ -120,20 +126,11 @@ class image_converter:
 
   def pixelToMeter(self,image):
     blue_blob = self.detect_blue(image)
-    green_blob = self.detect_green(image)
+    yellow_blob = self.detect_yellow(image)
 
-    dist = np.sum((blue_blob - green_blob)**2)
-    return 3.5/np.sqrt(dist)
+    dist = np.sum((yellow_blob - blue_blob)**2)
+    return 2.5/np.sqrt(dist)
 
-
-  def detect_end_effector(self,image):
-    #finds end position respect to blue blob
-    red_blob = self.detect_red(image)
-    blue_blob = self.detect_blue(image)
-
-    p = self.pixelToMeter(image)
-
-    return p*(blue_blob - red_blob)
 
 
   def detect_joint2(self,image):
@@ -141,10 +138,16 @@ class image_converter:
     p = self.pixelToMeter(image)
     green_blob = self.detect_green(image)
     blue_blob = self.detect_blue(image)
+    # gets average of x coords for 3d space
+    print(self.greenC2_x)
+    green_blob_x = math.floor((green_blob[0]+self.greenC2_x)/2)
+    print(green_blob_x)
+    blue_blob_x = math.floor((blue_blob[0]+self.blueC2_x)/2)
 
-    joint2_pos = p*(blue_blob - green_blob)
+    joint2_pos_x = p*(blue_blob_x - green_blob_x)
+    joint2_pos_y = p*(blue_blob[1] - green_blob[1])
 
-    j2_angle = np.arctan2(joint2_pos[0],joint2_pos[1])
+    j2_angle = np.arctan2(joint2_pos_x,joint2_pos_y)
     return j2_angle
 
   def detect_joint3(self,image,j2_angle):
@@ -169,42 +172,18 @@ class image_converter:
     j4_angle = np.arctan2(joint4_pos[0],joint4_pos[1]) - j2_angle - j3_angle
     return j4_angle
 
+  # functions to get coord data from camera 2
+  def get_blue_z(self,data):
+    self.blueC2_z = data.data
 
-  def get_camera2_joint3(self,data):
-    self.est2_joint3 = data.data
+  def get_blue_x(self,data):
+    self.blueC2_x = data.data
 
+  def get_green_z(self,data):
+    self.greenC2_z = data.data
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+  def get_green_x(self,data):
+    self.greenC2_x = data.data
 
 
 
@@ -238,10 +217,11 @@ class image_converter:
 
 
       est_j2 = self.detect_joint2(self.cv_image1)
-      est_j3 = self.est2_joint3
+      est_j3 = self.detect_joint3(self.cv_image1,est_j2)
       est_j4 = self.detect_joint4(self.cv_image1,est_j2,est_j3)
 
       self.est1_joint2_pub.publish(est_j2)
+      self.est1_joint3_pub.publish(est_j3)
       print("J2 Actual Angle:",j_angle[0]," Estimated Angle:",est_j2)
       print("J3 Actual Angle:",j_angle[1]," Estimated Angle:",est_j3)
       print("J4 Actual Angle:",j_angle[2]," Estimated Angle:",est_j4)
