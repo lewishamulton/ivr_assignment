@@ -49,6 +49,12 @@ class image_converter:
     self.greenC2_z = 0.0;
     self.greenC2_x = 0.0;
 
+    # pixel to meter conversion
+    self.pToM = 0.0;
+
+    # negative/positive
+
+
 
 
 
@@ -61,13 +67,19 @@ class image_converter:
     self.time_trajectory = rospy.get_time()
 
 
+  def calculateDistance(self,x1,x2,y1,y2,z1,z2):
+    point_1 = np.array((x1,y1,z1))
+    point_2 = np.array((x2,y2,z2))
+    return np.linalg.norm(point_1 - point_2)
+
+
   def defineSinusoidalTrajectory(self):
     #get current time
     cur_time = np.array([rospy.get_time() - self.time_trajectory])
     print("Time:",cur_time)
-    joint2_trajectory = float(np.pi/2*np.sin(np.pi/15*cur_time))
-    joint3_trajectory = float(np.pi/2*np.sin(np.pi/18*cur_time))
-    joint4_trajectory = float(np.pi/2*np.sin(np.pi/20*cur_time))
+    joint2_trajectory = float(np.pi/2*np.sin((np.pi/15)*cur_time))
+    joint3_trajectory = float(np.pi/2*np.sin((np.pi/18)*cur_time))
+    joint4_trajectory = float(np.pi/2*np.sin((np.pi/20)*cur_time))
     return np.array([joint2_trajectory,joint3_trajectory,joint4_trajectory])
 
   def detect_red(self,image):
@@ -76,29 +88,20 @@ class image_converter:
     mask = cv2.dilate(mask,kernel,iterations=3)
 
     M = cv2.moments(mask)
-    try:
-        cx = int(M['m10']/M['m00'])
-        cy = int(M['m01']/M['m00'])
-        return np.array([cx,cy])
-    #blob is blocked or out of camera view = zerodivision
-    except ZeroDivisionError:
-        #try camera 2 view v
-        print("Switch camera")
+    cx = int(M['m10']/M['m00'])
+    cy = int(M['m01']/M['m00'])
+    return np.array([cx,cy])
 
   def detect_green(self,image):
     mask = cv2.inRange(image,(0,100,0),(0,255,0))
     kernel = np.ones((5,5), np.uint8)
     mask = cv2.dilate(mask,kernel,iterations=3)
-    cv2.imwrite('green_copy.png', mask)
     M = cv2.moments(mask)
-    try:
-        cx = int(M['m10']/M['m00'])
-        cy = int(M['m01']/M['m00'])
-        return np.array([cx,cy])
-    #blob is blocked or out of camera view = zerodivision
-    except ZeroDivisionError:
-        #try camera 2 view
-        print("Switch camera")
+    cx = int(M['m10']/M['m00'])
+    cy = int(M['m01']/M['m00'])
+     # print("Green C1 x:",cx," y:",cy)
+    return np.array([cx,cy])
+
 
 
   def detect_blue(self,image):
@@ -108,6 +111,7 @@ class image_converter:
     M = cv2.moments(mask)
     cx = int(M['m10']/M['m00'])
     cy = int(M['m01']/M['m00'])
+     # print("Blue C1 x:",cx," y:",cy)
     return np.array([cx,cy])
 
 
@@ -120,6 +124,19 @@ class image_converter:
     cx = int(M['m10']/M['m00'])
     cy = int(M['m01']/M['m00'])
     return np.array([cx,cy])
+
+  # used in joint calculation for exception of orange blob
+  # blocking red blob
+  def detect_orange(self,image):
+    mask = cv2.inRange(image,(5,50,50),(15,255,255))
+    kernel = np.ones((5,5), np.uint8)
+    mask = cv2.dilate(mask,kernel,iterations=3)
+
+    M = cv2.moments(mask)
+    cx = int(M['m10']/M['m00'])
+    cy = int(M['m01']/M['m00'])
+    return np.array([cx,cy])
+
 
 
 
@@ -138,16 +155,21 @@ class image_converter:
     p = self.pixelToMeter(image)
     green_blob = self.detect_green(image)
     blue_blob = self.detect_blue(image)
-    # gets average of x coords for 3d space
-    print(self.greenC2_x)
-    green_blob_x = math.floor((green_blob[0]+self.greenC2_x)/2)
-    print(green_blob_x)
-    blue_blob_x = math.floor((blue_blob[0]+self.blueC2_x)/2)
+    # gets average of z coords for 3d space
+    green_blob_z = math.floor((green_blob[1]+self.greenC2_z)/2)
+    blue_blob_z = math.floor((blue_blob[1]+self.blueC2_z)/2)
 
-    joint2_pos_x = p*(blue_blob_x - green_blob_x)
-    joint2_pos_y = p*(blue_blob[1] - green_blob[1])
 
-    j2_angle = np.arctan2(joint2_pos_x,joint2_pos_y)
+    hyp = p*self.calculateDistance(green_blob[0],blue_blob[0],green_blob[1],blue_blob[1],green_blob_z,blue_blob_z)
+    adj = p*self.calculateDistance(green_blob[0],green_blob[0],green_blob[1],green_blob[1],green_blob_z,blue_blob_z)
+
+
+    ratio = adj/hyp
+    #print("Adj",adj)
+    #print("Hyp",hyp)
+    #print("Ratio",ratio)
+    j2_angle = np.arccos(ratio)
+    #j2_angle = self.wrapToPiOver2(j2_angle)
     return j2_angle
 
   def detect_joint3(self,image,j2_angle):
@@ -156,9 +178,15 @@ class image_converter:
     green_blob = self.detect_green(image)
     blue_blob = self.detect_blue(image)
 
-    joint3_pos = p*(blue_blob - green_blob)
+    green_blob_z = math.floor((green_blob[1]+self.greenC2_z)/2)
+    blue_blob_z = math.floor((blue_blob[1]+self.blueC2_z)/2)
 
-    j3_angle = np.arctan2(joint3_pos[0],joint3_pos[1])-j2_angle
+
+    hyp = p*self.calculateDistance(green_blob[0],blue_blob[0],green_blob[1],blue_blob[1],green_blob_z,green_blob_z)
+    adj = p*self.calculateDistance(green_blob[0],blue_blob[0],blue_blob[1],blue_blob[1],blue_blob_z,blue_blob_z)
+
+    ratio = adj/hyp
+    j3_angle = np.pi/2 - np.arccos(ratio)
     return j3_angle
 
   def detect_joint4(self,image,j2_angle,j3_angle):
@@ -167,10 +195,19 @@ class image_converter:
     blue_blob = self.detect_blue(image)
     red_blob = self.detect_red(image)
 
+
     joint4_pos = p*(blue_blob-red_blob)
 
     j4_angle = np.arctan2(joint4_pos[0],joint4_pos[1]) - j2_angle - j3_angle
     return j4_angle
+
+
+  def wrapToPiOver2(self,angle):
+    angle = (angle + np.pi/2)%(np.pi/2)-np.pi/2
+    return angle
+
+
+
 
   # functions to get coord data from camera 2
   def get_blue_z(self,data):
@@ -196,10 +233,14 @@ class image_converter:
       print(e)
 
     # Uncomment if you want to save the image
-    #cv2.imwrite('image_copy.png', cv_image)
+
 
     im1=cv2.imshow('window1', self.cv_image1)
+    cv2.imwrite('image_wrong.png', self.cv_image1)
     cv2.waitKey(1)
+
+
+    #get origin to measure distances respect to
 
     #Get joint angles
     j_angle = self.defineSinusoidalTrajectory()
@@ -224,7 +265,7 @@ class image_converter:
       self.est1_joint3_pub.publish(est_j3)
       print("J2 Actual Angle:",j_angle[0]," Estimated Angle:",est_j2)
       print("J3 Actual Angle:",j_angle[1]," Estimated Angle:",est_j3)
-      print("J4 Actual Angle:",j_angle[2]," Estimated Angle:",est_j4)
+      #print("J4 Actual Angle:",j_angle[2]," Estimated Angle:",est_j4)
 
 
 
