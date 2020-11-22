@@ -43,11 +43,16 @@ class image_converter:
     self.green_z_sub = rospy.Subscriber("green_z_coord",Float64,self.get_green_z)
     self.green_x_sub = rospy.Subscriber("green_x_coord",Float64,self.get_green_x)
 
+    self.red_z_sub = rospy.Subscriber("red_z_coord",Float64,self.get_red_z)
+    self.red_x_sub = rospy.subscriber("red_x_coord",Float64,self.get_red_x)
+
     # global variables of camera 2 coords
-    self.blueC2_z = 0.0;
-    self.blueC2_x = 0.0;
-    self.greenC2_z = 0.0;
-    self.greenC2_x = 0.0;
+    self.blueC2_z = 0.0
+    self.blueC2_x = 0.0
+    self.greenC2_z = 0.0
+    self.greenC2_x = 0.0
+    self.redC2_z = 0.0
+    self.redC2_x = 0.0
 
     # pixel to meter conversion
     self.pToM = 0.0;
@@ -97,9 +102,15 @@ class image_converter:
     kernel = np.ones((5,5), np.uint8)
     mask = cv2.dilate(mask,kernel,iterations=3)
     M = cv2.moments(mask)
-    cx = int(M['m10']/M['m00'])
-    cy = int(M['m01']/M['m00'])
-     # print("Green C1 x:",cx," y:",cy)
+    try:
+      cx = int(M['m10']/M['m00'])
+      cy = int(M['m01']/M['m00'])
+    except ZeroDivisionError:
+      #green blob is being blocked by blue blob
+      #-100s are a flag to tell function to recalculate
+      #cx,cy
+      cx = -100
+      cy = -100
     return np.array([cx,cy])
 
 
@@ -109,9 +120,15 @@ class image_converter:
     kernel = np.ones((5,5), np.uint8)
     mask = cv2.dilate(mask,kernel,iterations=3)
     M = cv2.moments(mask)
-    cx = int(M['m10']/M['m00'])
-    cy = int(M['m01']/M['m00'])
-     # print("Blue C1 x:",cx," y:",cy)
+    try:
+      cx = int(M['m10']/M['m00'])
+      cy = int(M['m01']/M['m00'])
+    except ZeroDivisionError:
+      #minus pixel values are a flag to tell
+      #joint detector to recalculate cx,cy
+      cx = -100
+      cy = -100
+
     return np.array([cx,cy])
 
 
@@ -151,18 +168,25 @@ class image_converter:
 
 
   def detect_joint2(self,image):
-
     p = self.pixelToMeter(image)
     green_blob = self.detect_green(image)
     blue_blob = self.detect_blue(image)
+
+    #checks for ZeroDivisionError flags
+    if (blue_blob[0] == -100):
+      blue_blob = green_blob
+
+    if (green_blob[0] == -100):
+      #green is being blocked by blue so z and y
+      #coords (in terms of base frame at yellow) are the same
+      green_blob = blue_blob
+
     # gets average of z coords for 3d space
     green_blob_z = math.floor((green_blob[1]+self.greenC2_z)/2)
     blue_blob_z = math.floor((blue_blob[1]+self.blueC2_z)/2)
 
-
-    hyp = p*self.calculateDistance(green_blob[0],blue_blob[0],green_blob[1],blue_blob[1],green_blob_z,blue_blob_z)
-    adj = p*self.calculateDistance(green_blob[0],green_blob[0],green_blob[1],green_blob[1],green_blob_z,blue_blob_z)
-
+    hyp = p*self.calculateDistance(self.greenC2_x,self.blueC2_x,green_blob[0],blue_blob[0],green_blob_z,blue_blob_z)
+    adj = p*self.calculateDistance(self.greenC2_x,self.greenC2_x,green_blob[0],green_blob[0],green_blob_z,blue_blob_z)
 
     ratio = adj/hyp
     #print("Adj",adj)
@@ -172,25 +196,34 @@ class image_converter:
     #j2_angle = self.wrapToPiOver2(j2_angle)
     return j2_angle
 
-  def detect_joint3(self,image,j2_angle):
 
+  def detect_joint3(self,image,j2_angle):
     p = self.pixelToMeter(image)
     green_blob = self.detect_green(image)
     blue_blob = self.detect_blue(image)
+
+    #checks for ZeroDivisionError flags
+    if (blue_blob[0] == -100):
+      blue_blob = green_blob
+
+    if (green_blob[0] == -100):
+      #green is being blocked by blue so z and y
+      #coords (in terms of base frame at yellow) are the same
+      green_blob = blue_blob
 
     green_blob_z = math.floor((green_blob[1]+self.greenC2_z)/2)
     blue_blob_z = math.floor((blue_blob[1]+self.blueC2_z)/2)
 
 
-    hyp = p*self.calculateDistance(green_blob[0],blue_blob[0],green_blob[1],blue_blob[1],green_blob_z,green_blob_z)
-    adj = p*self.calculateDistance(green_blob[0],blue_blob[0],blue_blob[1],blue_blob[1],blue_blob_z,blue_blob_z)
+    hyp = p*self.calculateDistance(self.greenC2_x,self.blueC2_x,green_blob[0],blue_blob[0],green_blob_z,green_blob_z)
+    adj = p*self.calculateDistance(self.greenC2_x,self.blueC2_x,blue_blob[0],blue_blob[0],blue_blob_z,blue_blob_z)
 
     ratio = adj/hyp
-    j3_angle = np.pi/2 - np.arccos(ratio)
+    j3_angle = np.arccos(ratio)
     return j3_angle
 
-  def detect_joint4(self,image,j2_angle,j3_angle):
 
+  def detect_joint4(self,image,j2_angle,j3_angle):
     p = self.pixelToMeter(image)
     blue_blob = self.detect_blue(image)
     red_blob = self.detect_red(image)
@@ -202,14 +235,9 @@ class image_converter:
     return j4_angle
 
 
-  def wrapToPiOver2(self,angle):
-    angle = (angle + np.pi/2)%(np.pi/2)-np.pi/2
-    return angle
-
-
-
 
   # functions to get coord data from camera 2
+  # x,z axes of the base frame
   def get_blue_z(self,data):
     self.blueC2_z = data.data
 
@@ -221,6 +249,14 @@ class image_converter:
 
   def get_green_x(self,data):
     self.greenC2_x = data.data
+
+  def get_red_z(self,data):
+    self.redC2_z = data.data
+
+  def get_red_x(self,data):
+    self.redC2_x = data.data
+
+
 
 
 
@@ -240,9 +276,9 @@ class image_converter:
     cv2.waitKey(1)
 
 
-    #get origin to measure distances respect to
 
-    #Get joint angles
+
+    # Get joint angles for trajectory
     j_angle = self.defineSinusoidalTrajectory()
 
 
@@ -266,12 +302,6 @@ class image_converter:
       print("J2 Actual Angle:",j_angle[0]," Estimated Angle:",est_j2)
       print("J3 Actual Angle:",j_angle[1]," Estimated Angle:",est_j3)
       #print("J4 Actual Angle:",j_angle[2]," Estimated Angle:",est_j4)
-
-
-
-
-
-
 
 
     except CvBridgeError as e:

@@ -26,9 +26,12 @@ class image_converter:
     #intialises a publisher for the x,z coords of the blobs
     self.blue_z_pub = rospy.Publisher("blue_z_coord",Float64, queue_size = 10)
     self.blue_x_pub = rospy.Publisher("blue_x_coord",Float64, queue_size = 10)
+
     self.green_z_pub = rospy.Publisher("green_z_coord",Float64, queue_size = 10)
     self.green_x_pub = rospy.Publisher("green_x_coord",Float64, queue_size = 10)
-
+    
+    self.red_z_pub = rospy.Publisher("red_z_coord",Float64, queue_size = 10)
+    self.red_x_pub = rospy.Publisher("red_x_coord",Float64, queue_size = 10)
     # initialize the bridge between openCV and ROS
     self.bridge = CvBridge()
 
@@ -38,16 +41,21 @@ class image_converter:
 
 
 
-    
+
   def detect_blue(self,image):
     mask = cv2.inRange(image,(100,0,0),(255,0,0))
     kernel = np.ones((5,5), np.uint8)
     mask = cv2.dilate(mask,kernel,iterations=3)
 
     M = cv2.moments(mask)
-    cx = int(M['m10']/M['m00'])
-    cy = int(M['m01']/M['m00'])
-    #print("Blue C2 x:",cx," y:",cy)
+    try:
+      cx = int(M['m10']/M['m00'])
+      cy = int(M['m01']/M['m00'])
+    except ZeroDivisionError:
+      #minus pixel values are a flag to tell
+      #joint detector to recalculate cx,cy
+      cx = -100
+      cy = -100
     return np.array([cx,cy])
 
   def detect_green(self,image):
@@ -55,31 +63,29 @@ class image_converter:
     kernel = np.ones((5,5), np.uint8)
     mask = cv2.dilate(mask,kernel,iterations=3)
     M = cv2.moments(mask)
-    cx = int(M['m10']/M['m00'])
-    cy = int(M['m01']/M['m00'])
-    #print("Green C2 x:",cx," y:",cy)
+    try:
+      cx = int(M['m10']/M['m00'])
+      cy = int(M['m01']/M['m00'])
+    except ZeroDivisionError:
+      #green blob is being blocked by blue blob
+      #-100s are a flag to tell function to recalculate
+      #cx,cy
+      cx = -100
+      cy = -100
     return np.array([cx,cy])
 
-  #convert pixel to meters for link 3
-  def pixelToMeter(self,image):
-    blue_circle = self.detect_blue(image)
-    green_circle = self.detect_green(image)
-    dist = np.sum((green_circle - blue_circle)**2)
-    return 3.5/np.sqrt(dist)
+  def detect_red(self,image):
+    mask = cv2.inRange(image,(0,0,100),(0,0,255))
+    kernel = np.ones((5,5), np.uint8)
+    mask = cv2.dilate(mask,kernel,iterations=3)
 
-  #gets estimate of joint 3 angle
-  def detect_joint3(self,image,j2_angle):
-    p = self.pixelToMeter(image)
-    green_blob = self.detect_green(image)
-    blue_blob = self.detect_blue(image)
+    M = cv2.moments(mask)
+    cx = int(M['m10']/M['m00'])
+    cy = int(M['m01']/M['m00'])
+    return np.array([cx,cy])
 
-    joint3_pos = p*(blue_blob - green_blob)
 
-    j3_angle = np.arctan2(joint3_pos[0],joint3_pos[1])
-    return j3_angle
 
-  def get_camera1_joint2(self,data):
-    self.est1_joint2 = data.data
 
   # Recieve data, process it, and publish
   def callback2(self,data):
@@ -95,12 +101,27 @@ class image_converter:
     im2=cv2.imshow('window2', self.cv_image2)
 
     blue_xz = self.detect_blue(self.cv_image2)
+    green_xz = self.detect_green(self.cv_image2)
+    red_xz = self.detect_green(self.cv_image2)
+
+    #checks flags
+    if (blue_xz[0] == -100):
+      #blue is being blocked by green and hence has
+      #same x and z vlaues as green (respect to base frame)
+      blue_xz = green_xz
+
+    if (green_xz[0] == -100):
+      #green is being blocked by blue
+      green_xz = blue_xz
+
     self.blue_z_pub.publish(blue_xz[1])
     self.blue_x_pub.publish(blue_xz[0])
 
-    green_xz = self.detect_green(self.cv_image2)
     self.green_z_pub.publish(green_xz[1])
     self.green_x_pub.publish(green_xz[0])
+
+    self.red_z_pub.publish(red_xz[1])
+    self.red_x_pub.publish(red_xz[0])
     cv2.waitKey(1)
 
 
