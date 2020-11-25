@@ -29,7 +29,7 @@ class image_converter:
 
     self.green_z_pub = rospy.Publisher("green_z_coord",Float64, queue_size = 10)
     self.green_x_pub = rospy.Publisher("green_x_coord",Float64, queue_size = 10)
-    
+
     self.red_z_pub = rospy.Publisher("red_z_coord",Float64, queue_size = 10)
     self.red_x_pub = rospy.Publisher("red_x_coord",Float64, queue_size = 10)
     # initialize the bridge between openCV and ROS
@@ -78,10 +78,23 @@ class image_converter:
     mask = cv2.inRange(image,(0,0,100),(0,0,255))
     kernel = np.ones((5,5), np.uint8)
     mask = cv2.dilate(mask,kernel,iterations=3)
+    try:
+      M = cv2.moments(mask)
+      cx = int(M['m10']/M['m00'])
+      cy = int(M['m01']/M['m00'])
+    except ZeroDivisionError:
+      #checks if red is blocked by green and blue or orange blob
+      g = self.detect_green(image)
+      #if is blocked by blue/green then green is blocked as well
+      #hence detect_green should return the negative flag
+      if(g[1] == -100):
+          cx = -100
+          cy = -100
 
-    M = cv2.moments(mask)
-    cx = int(M['m10']/M['m00'])
-    cy = int(M['m01']/M['m00'])
+      else:
+          #gives it a different flag when blocked by orange blob
+          cx = -200
+          cy = -200
     return np.array([cx,cy])
 
 
@@ -113,6 +126,10 @@ class image_converter:
     if (green_xz[0] == -100):
       #green is being blocked by blue
       green_xz = blue_xz
+
+    if (red_xz[0] == -100):
+      #red is being blocked by green which is being blocked by blue
+      red_xz =blue_xz
 
     self.blue_z_pub.publish(blue_xz[1])
     self.blue_x_pub.publish(blue_xz[0])

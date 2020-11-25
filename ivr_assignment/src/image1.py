@@ -44,7 +44,7 @@ class image_converter:
     self.green_x_sub = rospy.Subscriber("green_x_coord",Float64,self.get_green_x)
 
     self.red_z_sub = rospy.Subscriber("red_z_coord",Float64,self.get_red_z)
-    self.red_x_sub = rospy.subscriber("red_x_coord",Float64,self.get_red_x)
+    self.red_x_sub = rospy.Subscriber("red_x_coord",Float64,self.get_red_x)
 
     # global variables of camera 2 coords
     self.blueC2_z = 0.0
@@ -91,10 +91,24 @@ class image_converter:
     mask = cv2.inRange(image,(0,0,100),(0,0,255))
     kernel = np.ones((5,5), np.uint8)
     mask = cv2.dilate(mask,kernel,iterations=3)
+    try:
+      M = cv2.moments(mask)
+      cx = int(M['m10']/M['m00'])
+      cy = int(M['m01']/M['m00'])
+    except ZeroDivisionError:
+      #checks if red is blocked by green and blue or orange blob
+      g = self.detect_green(image)
+      #if is blocked by blue/green then green is blocked as well
+      #hence detect_green should return the negative flag
+      if(g[1] == -100):
+          cx = -100
+          cy = -100
 
-    M = cv2.moments(mask)
-    cx = int(M['m10']/M['m00'])
-    cy = int(M['m01']/M['m00'])
+      else:
+          #gives it a different flag when blocked by orange blob
+          cx = -200
+          cy = -200
+
     return np.array([cx,cy])
 
   def detect_green(self,image):
@@ -166,7 +180,6 @@ class image_converter:
     return 2.5/np.sqrt(dist)
 
 
-
   def detect_joint2(self,image):
     p = self.pixelToMeter(image)
     green_blob = self.detect_green(image)
@@ -174,11 +187,13 @@ class image_converter:
 
     #checks for ZeroDivisionError flags
     if (blue_blob[0] == -100):
+      print("robot pointing at camera")
       blue_blob = green_blob
 
     if (green_blob[0] == -100):
       #green is being blocked by blue so z and y
       #coords (in terms of base frame at yellow) are the same
+      print("robot pointing away from camera")
       green_blob = blue_blob
 
     # gets average of z coords for 3d space
@@ -204,6 +219,7 @@ class image_converter:
 
     #checks for ZeroDivisionError flags
     if (blue_blob[0] == -100):
+      print("robot pointing at camera")
       blue_blob = green_blob
 
     if (green_blob[0] == -100):
@@ -219,7 +235,7 @@ class image_converter:
     adj = p*self.calculateDistance(self.greenC2_x,self.blueC2_x,blue_blob[0],blue_blob[0],blue_blob_z,blue_blob_z)
 
     ratio = adj/hyp
-    j3_angle = np.arccos(ratio)
+    j3_angle = np.arccos(ratio) 
     return j3_angle
 
 
@@ -227,11 +243,27 @@ class image_converter:
     p = self.pixelToMeter(image)
     blue_blob = self.detect_blue(image)
     red_blob = self.detect_red(image)
+    green_blob = self.detect_green(image)
 
+    #checks for ZeroDivisionError flags
+    if (green_blob[0] == -100):
+      #green is being blocked by blue so z and y
+      #coords (in terms of base frame at yellow) are the same
+      green_blob = blue_blob
 
-    joint4_pos = p*(blue_blob-red_blob)
+    if (red_blob[0] == -100):
+      #blue is being blocked by greenn which is being blocked by blue so z and y
+      #coords (in terms of base frame at yellow) are the same for all blobs
+      red_blob = blue_blob
 
-    j4_angle = np.arctan2(joint4_pos[0],joint4_pos[1]) - j2_angle - j3_angle
+    red_blob_z = math.floor((red_blob[1]+self.redC2_z)/2)
+    green_blob_z = math.floor((green_blob[1]+self.greenC2_z)/2)
+
+    hyp = p*self.calculateDistance(self.redC2_x,self.greenC2_x,red_blob[0],green_blob[0],red_blob_z,green_blob_z)
+    adj = p*self.calculateDistance(self.redC2_x,self.redC2_x,red_blob[0],red_blob[0],red_blob_z,green_blob_z)
+
+    ratio = adj/hyp
+    j4_angle = np.arccos(ratio)
     return j4_angle
 
 
@@ -301,7 +333,7 @@ class image_converter:
       self.est1_joint3_pub.publish(est_j3)
       print("J2 Actual Angle:",j_angle[0]," Estimated Angle:",est_j2)
       print("J3 Actual Angle:",j_angle[1]," Estimated Angle:",est_j3)
-      #print("J4 Actual Angle:",j_angle[2]," Estimated Angle:",est_j4)
+      print("J4 Actual Angle:",j_angle[2]," Estimated Angle:",est_j4)
 
 
     except CvBridgeError as e:
