@@ -5,6 +5,9 @@ import rospy
 import numpy as np
 from std_msgs.msg import String
 from std_msgs.msg import Float64
+from sensor_msgs.msg import Image
+from cv_bridge import CvBridge, CvBridgeError
+import cv2
 
 
 # Publish data
@@ -19,9 +22,13 @@ def move():
   robot_joint5_pub = rospy.Publisher("/target2/y2_position_controller/command", Float64, queue_size=10)
   robot_joint6_pub = rospy.Publisher("/target2/z2_position_controller/command", Float64, queue_size=10)
   t0 = rospy.get_time()
+
   while not rospy.is_shutdown():
+
     cur_time = np.array([rospy.get_time()])-t0
     #y_d = float(6 + np.absolute(1.5* np.sin(cur_time * np.pi/100)))
+
+
     x_d = 2.5* np.cos(cur_time * np.pi/15)
     y_d = 2.5* np.sin(cur_time * np.pi/15)
     z_d = 1* np.sin(cur_time * np.pi/15)
@@ -49,11 +56,54 @@ def move():
 
 
 
+def get_image_data(data):
+    # Recieve the image
+    try:
+      cv_image1 = bridge.imgmsg_to_cv2(data, "bgr8")
+
+      cnts,thresh = detect_orange(cv_image1)
+      print(cnts)
+      cnts = imutils.grab_contours(cnts)
+      crop_image_samples(cnts,thresh)
+
+
+    except CvBridgeError as e:
+      print(e)
+
+
+# returns contours of orange masked parts of image
+# and thresholded image
+def detect_orange(image):
+
+    mask = cv2.inRange(image,(5,50,50),(15,255,255))
+    kernel = np.ones((5,5), np.uint8)
+    mask = cv2.dilate(mask,kernel,iterations=3)
+    ret,thresh = cv2.threshold(mask,127,255,0)
+    contours,hierarchy = cv2.findContours(thresh,cv2.RETR_TREE,cv2.CHAIN_APPROX_SIMPLE)
+
+    return contours,thresh
+
+def crop_image_samples(cnts,thresh):
+    num = 0
+    for c in cnts:
+        M = cv2.moments(c)
+        cx = int(M['m10']/M['m00'])
+        cy = int(M['m01']/M['m00'])
+        center = np.array([cx,cy])
+        #creates a 20 by 20 cropped image of contour as sample
+        sample = thresh[c[1]-20:c[1]+20,c[0]-20:c[0]+20]
+        cv2.imwrite("sample"+num+".jpg",sample)
+        num += 1
+
 # run the code if the node is called
 if __name__ == '__main__':
   try:
+    bridge = CvBridge()
+    #get image data
+    image_sub1 = rospy.Subscriber("/camera1/robot/image_raw",Image,get_image_data)
     move()
+
+
+
   except rospy.ROSInterruptException:
     pass
-
-

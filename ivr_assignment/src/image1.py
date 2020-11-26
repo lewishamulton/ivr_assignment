@@ -46,6 +46,7 @@ class image_converter:
     self.red_z_sub = rospy.Subscriber("red_z_coord",Float64,self.get_red_z)
     self.red_x_sub = rospy.Subscriber("red_x_coord",Float64,self.get_red_x)
 
+
     # global variables of camera 2 coords
     self.blueC2_z = 0.0
     self.blueC2_x = 0.0
@@ -208,7 +209,6 @@ class image_converter:
     #print("Hyp",hyp)
     #print("Ratio",ratio)
     j2_angle = np.arccos(ratio)
-    #j2_angle = self.wrapToPiOver2(j2_angle)
     return j2_angle
 
 
@@ -231,11 +231,11 @@ class image_converter:
     blue_blob_z = math.floor((blue_blob[1]+self.blueC2_z)/2)
 
 
-    hyp = p*self.calculateDistance(self.greenC2_x,self.blueC2_x,green_blob[0],blue_blob[0],green_blob_z,green_blob_z)
-    adj = p*self.calculateDistance(self.greenC2_x,self.blueC2_x,blue_blob[0],blue_blob[0],blue_blob_z,blue_blob_z)
+    hyp = p*self.calculateDistance(self.greenC2_x,self.blueC2_x,green_blob[0],blue_blob[0],blue_blob_z,blue_blob_z)
+    adj = p*self.calculateDistance(self.blueC2_x,self.blueC2_x,green_blob[0],blue_blob[0],blue_blob_z,blue_blob_z)
 
     ratio = adj/hyp
-    j3_angle = np.arccos(ratio) 
+    j3_angle = np.arccos(ratio)
     return j3_angle
 
 
@@ -258,6 +258,7 @@ class image_converter:
 
     red_blob_z = math.floor((red_blob[1]+self.redC2_z)/2)
     green_blob_z = math.floor((green_blob[1]+self.greenC2_z)/2)
+    blue_blob_z = math.floor((blue_blob[1]+self.blueC2_z)/2)
 
     hyp = p*self.calculateDistance(self.redC2_x,self.greenC2_x,red_blob[0],green_blob[0],red_blob_z,green_blob_z)
     adj = p*self.calculateDistance(self.redC2_x,self.redC2_x,red_blob[0],red_blob[0],red_blob_z,green_blob_z)
@@ -304,7 +305,7 @@ class image_converter:
 
 
     im1=cv2.imshow('window1', self.cv_image1)
-    cv2.imwrite('image_wrong.png', self.cv_image1)
+
     cv2.waitKey(1)
 
 
@@ -331,6 +332,7 @@ class image_converter:
 
       self.est1_joint2_pub.publish(est_j2)
       self.est1_joint3_pub.publish(est_j3)
+      self.est1_joint4_pub.publish(est_j4)
       print("J2 Actual Angle:",j_angle[0]," Estimated Angle:",est_j2)
       print("J3 Actual Angle:",j_angle[1]," Estimated Angle:",est_j3)
       print("J4 Actual Angle:",j_angle[2]," Estimated Angle:",est_j4)
