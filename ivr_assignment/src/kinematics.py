@@ -53,10 +53,10 @@ class kinematics:
 
 
   def calculateForwardKinematics(self,theta1,theta2,theta3,theta4):
-    m1 = self.calculateTMatFromDHParams(0,2.5,0,theta1)
-    m2 = self.calculateTMatFromDHParams(-np.pi/2,0,0,theta2)
-    m3 = self.calculateTMatFromDHParams(np.pi/2,3.5,0,theta3)
-    m4 = self.calculateTMatFromDHParams(-np.pi/2,3,0,theta4)
+    m1 = self.calculateTMatFromDHParams(-np.pi/2,0,2.5,theta1)
+    m2 = self.calculateTMatFromDHParams(np.pi/2,0,0,theta2)
+    m3 = self.calculateTMatFromDHParams(-np.pi/2,3.5,0,theta3)
+    m4 = self.calculateTMatFromDHParams(np.pi/2,0,3,theta4)
     final = np.matmul(m1,np.matmul(m2,m3,m4))
     return final[:,3][:3]
   
