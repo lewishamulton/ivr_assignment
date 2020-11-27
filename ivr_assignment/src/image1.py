@@ -207,6 +207,7 @@ class image_converter:
     #print("Adj",adj)
     #print("Hyp",hyp)
     #print("Ratio",ratio)
+
     j2_angle = np.arccos(ratio)
     return j2_angle
 
@@ -263,6 +264,7 @@ class image_converter:
     adj = p*self.calculateDistance(self.redC2_x,self.redC2_x,red_blob[0],red_blob[0],red_blob_z,green_blob_z)
 
     ratio = adj/hyp
+    relative_angle = np.pi/2 - j2_angle
     j4_angle = np.arccos(ratio)
     return j4_angle
 

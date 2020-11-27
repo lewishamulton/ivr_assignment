@@ -17,6 +17,8 @@ class chamfer_match:
 
     def __init__(self):
 
+        rospy.init_node('image_processing', anonymous=True)
+
         # global vars of x,y and Zs of sphere from camera 1 and camera 2
         self.sphere_c1_y = 0
         self.sphere_c1_z = 0
@@ -34,11 +36,11 @@ class chamfer_match:
         self.image_sub1 = rospy.Subscriber("/camera1/robot/image_raw",Image,self.get_image_data)
         self.image_sub2 = rospy.Subscriber("/camera2/robot/image_raw",Image,self.get_image_data2)
 
-    def get_image_data2(self,data):
-        try:
-            self.cv_image2 =  self.bridge.imgmsg_to_cv2(data, "bgr8")
-        except CvBridgeError as e:
-            print(e)
+        #publish estimated x,y,z coords in meters
+        self.est_x = rospy.Publisher("sphere/est_x",Float64,queue_size=10)
+        self.est_y = rospy.Publisher("sphere/est_y",Float64,queue_size=10)
+        self.est_z = rospy.Publisher("sphere/est_z",Float64,queue_size=10)
+
 
     def get_image_data(self,data):
         # Recieve the image
@@ -76,11 +78,31 @@ class chamfer_match:
           self.sphere_c2_x = sphere_centre[0]
           self.sphere_c2_z = sphere_centre[1]
 
+          p = self.pixelToMeter(self.cv_image1)
+          xyz = self.get_sphere_3d_coords()
+
+          #puts sphere coords into meters
+          xyz_m = xyz*p
+
+          self.est_x.publish(xyz_m[0])
+          self.est_y.publish(xyz_m[1])
+          self.est_z.publish(xyz_m[2])
+          print("Est x:",xyz_m[0])
+          print("Est y:",xyz_m[1])
+          print("Est z:",xyz_m[2])
+
+
 
 
 
         except CvBridgeError as e:
           print(e)
+
+    def get_image_data2(self,data):
+        try:
+            self.cv_image2 =  self.bridge.imgmsg_to_cv2(data, "bgr8")
+        except CvBridgeError as e:
+            print(e)
 
     def get_sphere_3d_coords(self):
         #gets the avg of 2 views coords to get z coord in 3d
@@ -89,9 +111,14 @@ class chamfer_match:
         #returns 3d coords
         return np.array([self.sphere_c2_x,self.sphere_c1_y,z_coord])
 
+    #puts our pixel coords into meters
     def pixelToMeter(self,image):
-        yellow_blob = self.detect_yellow(image)
-        blue_blob = self.detect_blue(image)
+      blue_blob = self.detect_blue(image)
+      yellow_blob = self.detect_yellow(image)
+
+      dist = np.sum((yellow_blob - blue_blob)**2)
+      return 2.5/np.sqrt(dist)
+
     # returns contours of orange masked parts of image
     # and orange masked image
     def detect_orange(self,image):
@@ -167,7 +194,7 @@ class chamfer_match:
 
 # Publish data
 def move():
-  rospy.init_node('target_pos_cmd', anonymous=True)
+  #rospy.init_node('target_pos_cmd', anonymous=True)
   rate = rospy.Rate(30) # 30hz
   # initialize a publisher to send joints' angular position to the robot
   robot_joint1_pub = rospy.Publisher("/target/x_position_controller/command", Float64, queue_size=10)
