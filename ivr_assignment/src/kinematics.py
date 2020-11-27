@@ -62,6 +62,13 @@ class kinematics:
 
 
 
+  def returnFinalTMat(self,theta1,theta2,theta3,theta4):
+    m1 = self.calculateTMatFromDHParams(-np.pi/2,0,2.5,theta1)
+    m2 = self.calculateTMatFromDHParams(np.pi/2,0,0,theta2)
+    m3 = self.calculateTMatFromDHParams(-np.pi/2,3.5,0,theta3)
+    m4 = self.calculateTMatFromDHParams(np.pi/2,0,3,theta4)
+    final = np.matmul(m1,np.matmul(m2,m3,m4))
+    return final
 
   def calculateForwardKinematics(self,theta1,theta2,theta3,theta4):
     m1 = self.calculateTMatFromDHParams(-np.pi/2,0,2.5,theta1)
@@ -78,6 +85,46 @@ class kinematics:
          0,0,0,1]
     t = np.array(t).reshape((4,4))
     return t
+
+  def getAllTransformMatrices(self,theta1,theta2,theta3,theta4):
+    m1 = self.calculateTMatFromDHParams(-np.pi/2,0,2.5,theta1)
+    m2 = self.calculateTMatFromDHParams(np.pi/2,0,0,theta2)
+    m3 = self.calculateTMatFromDHParams(-np.pi/2,3.5,0,theta3)
+    m4 = self.calculateTMatFromDHParams(np.pi/2,0,3,theta4)
+    frames = [m1,m2,m3,m4]
+    t_mats = []
+    t_mats.append(np.eye(shape=((m1.shape))))#0-1
+    t_mats.append(np.matmul(m1,m2))#0-2
+    t_mats.append(np.matmul(t_mats[1],m3))#0-3
+    t_mats.append(np.matmul(t_mats[2],m4))#0-4
+    return t_mats
+
+  def calculateJacobian(self,a,b,c,d):
+    m11 = np.cos(d)*(np.cos(a)*np.cos(b)*np.cos(c)-np.sin(a)*np.sin(c))-np.cos(a)*np.sin(b)*np.sin(d)
+    m12 = -np.cos(c)*np.sin(a)-np.cos(a)*np.cos(b)*np.sin(c)
+    m13 =  np.cos(a)*np.cos(d)*np.sin(b)+np.sin(d)*(np.cos(a)*np.cos(b)*np.cos(c)-np.sin(a)*np.sin(c))
+    m14 =  3.5*np.cos(a)*np.sin(b)+3*(-np.cos(c)*np.sin(a)-np.cos(a)*np.cos(b)*np.sin(c))
+
+    m21 = np.cos(d)*(np.cos(b)*np.cos(c)*np.sin(a)+np.cos(a)*np.sin(c))-np.sin(a)*np.sin(b)*np.sin(d)
+    m22 = np.cos(a)*np.cos(c)-np.cos(b)*np.sin(a)*np.sin(c)
+    m23 = np.cos(d)*np.sin(a)*np.sin(b)+np.sin(d)*(np.cos(b)*np.cos(c)*np.sin(a)+np.cos(a)*np.sin(c))
+    m24 = 3.5*np.sin(a)*np.sin(b)+3*(np.cos(a)*np.cos(c)-np.cos(b)*np.sin(a)*np.sin(c))
+
+    m31 = -np.cos(c)*np.cos(d)*np.sin(b)-np.cos(b)*np.sin(d)
+    m32 = np.sin(b)*np.sin(c)
+    m33 = np.cos(b)*np.cos(d)-np.cos(c)*np.sin(b)*np.sin(d)
+    m34 = 3.5*np.cos(b)+3*np.sin(b)*np.sin(c)+2.5
+
+    m41 = 0
+    m42 = 0
+    m43 = 0
+    m44 = 0
+
+    jacobian = [[m11,m12,m13,m14],
+                [m21,m22,m23,m24],
+                [m31,m32,m33,m34],
+                [m41,m42,m43,m44]]
+    return jacobian
 
   def detect_red(self,image):
     mask = cv2.inRange(image,(0,0,100),(0,0,255))
@@ -171,7 +218,7 @@ class kinematics:
       red_yz = self.detect_red(self.cv_image1)
       red_xz = self.detect_red(self.cv_image2)
 
-      #yellow being the base frame we calculate with respect to 
+      #yellow being the base frame we calculate with respect to
       yellow_yz = self.detect_yellow(self.cv_image1)
       yellow_xz = self.detect_yellow(self.cv_image2)
 
@@ -180,6 +227,10 @@ class kinematics:
 
       FK_estimate = self.calculateForwardKinematics(joint[0],joint[1],joint[2],joint[3])
       print("FK Estimate: ",FK_estimate)
+
+      #get jacobian
+      jacob = self.calculateJacobian(joint[0],joint[1],joint[2],joint[3])
+      print("Jacobian: ",jacob)
       self.fk_estimates.append(FK_estimate)
 
       time.sleep(4)
